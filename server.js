@@ -14,18 +14,18 @@ app.get('*', (req, res) => {
 
 // Очередь ожидающих (socket.id)
 let waitingQueue = [];
-// Пары: { roomId: { user1, user2 } }
-let pairs = {};
-let roomCounter = 0;
+// Группы: { groupId: [socketId1, socketId2, socketId3] }
+let groups = {};
+let groupCounter = 0;
 
 io.on('connection', (socket) => {
   console.log(`[${socket.id}] connected`);
 
   socket.on('start-search', () => {
     if (waitingQueue.includes(socket.id)) return;
-    // Проверим, не в паре ли
-    for (let room in pairs) {
-      if (pairs[room].user1 === socket.id || pairs[room].user2 === socket.id) return;
+    // Проверим, не в группе ли уже
+    for (let gid in groups) {
+      if (groups[gid].includes(socket.id)) return;
     }
     waitingQueue.push(socket.id);
     socket.emit('search-status', { status: 'waiting' });
@@ -33,110 +33,103 @@ io.on('connection', (socket) => {
   });
 
   function tryMatch() {
-    while (waitingQueue.length >= 2) {
-      const user1 = waitingQueue.shift();
-      const user2 = waitingQueue.shift();
-      const s1 = io.sockets.sockets.get(user1);
-      const s2 = io.sockets.sockets.get(user2);
-      if (!s1 || !s2) {
-        if (s1) waitingQueue.unshift(user1);
-        if (s2) waitingQueue.unshift(user2);
+    while (waitingQueue.length >= 3) {
+      const users = waitingQueue.splice(0, 3);
+      // Проверим, все ли ещё на связи
+      const validUsers = users.filter(id => io.sockets.sockets.get(id));
+      if (validUsers.length < 3) {
+        // Если кто-то отвалился, возвращаем остальных в очередь
+        validUsers.forEach(id => waitingQueue.push(id));
         continue;
       }
-      const roomId = `room_${roomCounter++}`;
-      pairs[roomId] = { user1, user2 };
-      s1.emit('matched', { partnerId: user2, room: roomId });
-      s2.emit('matched', { partnerId: user1, room: roomId });
-      console.log(`[${user1}] matched with [${user2}] in ${roomId}`);
+      const groupId = `group_${groupCounter++}`;
+      groups[groupId] = validUsers;
+      // Уведомляем каждого о группе
+      validUsers.forEach(id => {
+        const otherIds = validUsers.filter(uid => uid !== id);
+        io.to(id).emit('matched', { groupId, members: otherIds });
+      });
+      console.log(`[Group ${groupId}] matched: ${validUsers.join(', ')}`);
     }
   }
 
-  // Сигнальные сообщения (только для пары)
-  socket.on('offer', ({ to, offer, room }) => {
-    if (pairs[room] && (pairs[room].user1 === socket.id || pairs[room].user2 === socket.id)) {
-      io.to(to).emit('offer', { from: socket.id, offer, room });
+  // Сигнальные сообщения (пересылаем только между участниками группы)
+  socket.on('signal', ({ to, data, groupId }) => {
+    if (groups[groupId] && groups[groupId].includes(socket.id) && groups[groupId].includes(to)) {
+      io.to(to).emit('signal', { from: socket.id, data, groupId });
     }
   });
 
-  socket.on('answer', ({ to, answer, room }) => {
-    if (pairs[room] && (pairs[room].user1 === socket.id || pairs[room].user2 === socket.id)) {
-      io.to(to).emit('answer', { from: socket.id, answer, room });
-    }
+  // Скип (выход из группы)
+  socket.on('skip', () => {
+    handleSkip(socket.id);
   });
-
-  socket.on('ice-candidate', ({ to, candidate, room }) => {
-    if (pairs[room] && (pairs[room].user1 === socket.id || pairs[room].user2 === socket.id)) {
-      io.to(to).emit('ice-candidate', { from: socket.id, candidate, room });
-    }
-  });
-
-  // Скип
-  socket.on('skip', () => handleSkip(socket.id));
 
   function handleSkip(socketId) {
-    let foundRoom = null, partnerId = null;
-    for (let room in pairs) {
-      if (pairs[room].user1 === socketId) {
-        foundRoom = room;
-        partnerId = pairs[room].user2;
-        break;
-      } else if (pairs[room].user2 === socketId) {
-        foundRoom = room;
-        partnerId = pairs[room].user1;
+    let groupId = null;
+    for (let gid in groups) {
+      if (groups[gid].includes(socketId)) {
+        groupId = gid;
         break;
       }
     }
-    if (!foundRoom) return;
-    delete pairs[foundRoom];
+    if (!groupId) return;
+    const members = groups[groupId];
+    delete groups[groupId];
 
-    const s1 = io.sockets.sockets.get(socketId);
-    const s2 = io.sockets.sockets.get(partnerId);
-    if (s1) {
-      s1.emit('partner-disconnected');
-      waitingQueue.push(socketId);
-      s1.emit('search-status', { status: 'waiting' });
-    }
-    if (s2) {
-      s2.emit('partner-disconnected');
-      waitingQueue.push(partnerId);
-      s2.emit('search-status', { status: 'waiting' });
-    }
+    // Отправить всем участникам, что кто-то вышел
+    members.forEach(id => {
+      const s = io.sockets.sockets.get(id);
+      if (s) {
+        if (id === socketId) {
+          s.emit('partner-disconnected', { reason: 'you-left' });
+          // добавим в очередь для поиска нового
+          waitingQueue.push(id);
+          s.emit('search-status', { status: 'waiting' });
+        } else {
+          s.emit('partner-disconnected', { reason: 'other-left', leftId: socketId });
+          // остальные тоже идут в очередь
+          waitingQueue.push(id);
+          s.emit('search-status', { status: 'waiting' });
+        }
+      }
+    });
+    // Пытаемся создать новые группы
     tryMatch();
   }
 
   socket.on('stop-search', () => {
     const idx = waitingQueue.indexOf(socket.id);
     if (idx !== -1) waitingQueue.splice(idx, 1);
-    handleSkip(socket.id);
+    handleSkip(socket.id); // также выйдет из группы, если был
     socket.emit('search-status', { status: 'idle' });
   });
 
   socket.on('disconnect', () => {
     const idx = waitingQueue.indexOf(socket.id);
     if (idx !== -1) waitingQueue.splice(idx, 1);
-    let foundRoom = null, partnerId = null;
-    for (let room in pairs) {
-      if (pairs[room].user1 === socket.id) {
-        foundRoom = room;
-        partnerId = pairs[room].user2;
-        break;
-      } else if (pairs[room].user2 === socket.id) {
-        foundRoom = room;
-        partnerId = pairs[room].user1;
+    // Если был в группе, удаляем его, остальных отправляем обратно в очередь
+    let groupId = null;
+    for (let gid in groups) {
+      if (groups[gid].includes(socket.id)) {
+        groupId = gid;
         break;
       }
     }
-    if (foundRoom) {
-      delete pairs[foundRoom];
-      if (partnerId) {
-        const ps = io.sockets.sockets.get(partnerId);
-        if (ps) {
-          ps.emit('partner-disconnected');
-          waitingQueue.push(partnerId);
-          ps.emit('search-status', { status: 'waiting' });
-          tryMatch();
+    if (groupId) {
+      const members = groups[groupId];
+      delete groups[groupId];
+      members.forEach(id => {
+        if (id !== socket.id) {
+          const s = io.sockets.sockets.get(id);
+          if (s) {
+            s.emit('partner-disconnected', { reason: 'other-left', leftId: socket.id });
+            waitingQueue.push(id);
+            s.emit('search-status', { status: 'waiting' });
+          }
         }
-      }
+      });
+      tryMatch();
     }
     console.log(`[${socket.id}] disconnected`);
   });
