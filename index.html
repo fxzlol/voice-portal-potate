@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Portal</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background: #1e1e2f; color: #fff; }
+    h1 { color: #fff; }
+    #login { margin-bottom: 20px; padding: 15px; background: #2a2a3a; border-radius: 8px; display: inline-block; }
+    #login input, #login button { padding: 8px 12px; margin: 5px; border: none; border-radius: 5px; }
+    #login button { background: #5a7d9a; color: #fff; cursor: pointer; }
+    #roomInfo { display: none; }
+    #users { margin: 15px 0; padding: 10px; background: #2a2a3a; border-radius: 8px; min-height: 60px; }
+    #users span { display: inline-block; margin: 5px 10px 5px 0; background: #3a3a4a; padding: 5px 12px; border-radius: 15px; }
+    #users button { margin-left: 8px; background: #4c6a8a; border: none; color: #fff; border-radius: 10px; padding: 2px 10px; cursor: pointer; }
+    #controls button { margin: 5px; padding: 8px 16px; background: #4c6a8a; border: none; color: #fff; border-radius: 5px; cursor: pointer; }
+    #controls button:hover { background: #5f7f9f; }
+    #status { margin: 10px 0; padding: 8px; background: #2a2a3a; border-radius: 5px; }
+    .video-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+    .video-grid video { width: 240px; background: #000; border-radius: 8px; }
+    #localVideo { display: none; margin: 10px 0; }
+    #localVideo video { width: 240px; background: #000; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>🎙️ Voice Portal</h1>
+
+  <div id="login">
+    <input type="text" id="username" placeholder="Ваше имя" value="User">
+    <input type="text" id="room" placeholder="Название комнаты" value="main">
+    <button id="joinBtn">Войти</button>
+  </div>
+
+  <div id="roomInfo">
+    <p>Комната: <span id="roomName"></span></p>
+    <div id="users"></div>
+    <div id="controls">
+      <button id="micBtn">🔊 Микрофон</button>
+      <button id="videoBtn">📷 Камера</button>
+      <button id="screenBtn">🖥️ Экран</button>
+    </div>
+    <div id="status">Ожидание...</div>
+    <div id="localVideo">
+      <video id="local" autoplay muted></video>
+    </div>
+    <div class="video-grid" id="remoteVideos"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
+  <script>
+    // ----- Глобальные переменные -----
+    let socket;
+    let localStream;          // основной поток (аудио + видео)
+    let screenStream;         // поток экрана (если активен)
+    let isScreenSharing = false;
+    let currentRoom = '';
+    let username = '';
+    let peers = {};           // { socketId: SimplePeer }
+    let currentUsers = {};    // { socketId: { username, socketId } }
+
+    const localVideo = document.getElementById('local');
+    const remoteVideos = document.getElementById('remoteVideos');
+    const statusDiv = document.getElementById('status');
+
+    // ----- DOM элементы -----
+    document.getElementById('joinBtn').addEventListener('click', joinRoom);
+    document.getElementById('micBtn').addEventListener('click', toggleMic);
+    document.getElementById('videoBtn').addEventListener('click', toggleVideo);
+    document.getElementById('screenBtn').addEventListener('click', toggleScreen);
+
+    // ----- Функции -----
+    async function joinRoom() {
+      username = document.getElementById('username').value.trim() || 'User';
+      const room = document.getElementById('room').value.trim() || 'main';
+      currentRoom = room;
+
+      try {
+        // Запрашиваем аудио и видео
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        localVideo.srcObject = localStream;
+        document.getElementById('localVideo').style.display = 'block';
+      } catch (err) {
+        alert('Не удалось получить доступ к камере/микрофону: ' + err.message);
+        return;
+      }
+
+      // Подключаемся к серверу
+      socket = io();
+
+      socket.on('connect', () => {
+        console.log('Socket connected');
+        socket.emit('join-room', { room, username });
+      });
+
+      socket.on('room-joined', (data) => {
+        document.getElementById('login').style.display = 'none';
+        document.getElementById('roomInfo').style.display = 'block';
+        document.getElementById('roomName').textContent = data.room;
+        currentUsers = data.users;
+        updateUsers(currentUsers);
+        // Подключаемся ко всем существующим пользователям (кроме себя)
+        for (let id in currentUsers) {
+          if (id !== socket.id) {
+            createPeer(id, true); // инициатор
+          }
+        }
+        statusDiv.textContent = 'Вошли в комнату.';
+      });
+
+      socket.on('room-users', (users) => {
+        const oldUsers = currentUsers;
+        currentUsers = users;
+        // Добавляем новых
+        for (let id in users) {
+          if (id !== socket.id && !oldUsers[id]) {
+            // Новый пользователь — инициируем соединение
+            createPeer(id, true);
+          }
+        }
+        // Удаляем отсутствующих
+        for (let id in oldUsers) {
+          if (!users[id] && peers[id]) {
+            peers[id].destroy();
+            delete peers[id];
+            removeRemoteVideo(id);
+          }
+        }
+        updateUsers(users);
+      });
+
+      // Обработка сигналов
+      socket.on('offer', async ({ from, offer }) => {
+        // Если уже есть peer с этим id, игнорируем (чтобы избежать дублей)
+        if (peers[from]) {
+          console.log('Ignoring duplicate offer from', from);
+          return;
+        }
+        createPeer(from, false); // ответчик
+        peers[from].signal(offer);
+      });
+
+      socket.on('answer', ({ from, answer }) => {
+        if (peers[from]) {
+          peers[from].signal(answer);
+        }
+      });
+
+      socket.on('ice-candidate', ({ from, candidate }) => {
+        if (peers[from]) {
+          peers[from].signal(candidate);
+        }
+      });
+
+      socket.on('disconnect', () => {
+        alert('Соединение с сервером потеряно.');
+        leaveRoom();
+      });
+    }
+
+    // Создание peer-соединения
+    function createPeer(targetId, initiator) {
+      if (peers[targetId]) {
+        console.warn('Peer already exists for', targetId);
+        return;
+      }
+
+      const peer = new SimplePeer({
+        initiator: initiator,
+        trickle: true,
+        stream: localStream,
+        config: {
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        }
+      });
+
+      peer.on('signal', (data) => {
+        const event = initiator ? 'offer' : 'answer';
+        socket.emit(event, { to: targetId, [event]: data, room: currentRoom });
+      });
+
+      peer.on('stream', (stream) => {
+        addRemoteVideo(targetId, stream);
+      });
+
+      peer.on('close', () => {
+        removeRemoteVideo(targetId);
+        delete peers[targetId];
+      });
+
+      peer.on('error', (err) => {
+        console.error('Peer error:', err);
+        peer.destroy();
+        delete peers[targetId];
+        removeRemoteVideo(targetId);
+      });
+
+      peers[targetId] = peer;
+    }
+
+    // Обновление списка пользователей в UI
+    function updateUsers(users) {
+      const usersDiv = document.getElementById('users');
+      usersDiv.innerHTML = '';
+      for (let id in users) {
+        const user = users[id];
+        const span = document.createElement('span');
+        span.textContent = user.username + (id === socket.id ? ' (вы)' : '');
+        if (id !== socket.id) {
+          const btn = document.createElement('button');
+          btn.textContent = 'Позвать';
+          btn.onclick = () => {
+            // Если уже есть соединение, не создаём новое
+            if (!peers[id]) {
+              createPeer(id, true);
+            } else {
+              alert('Уже на связи');
+            }
+          };
+          span.appendChild(btn);
+        }
+        usersDiv.appendChild(span);
+        usersDiv.appendChild(document.createTextNode(' '));
+      }
+    }
+
+    // Добавление видео удалённого участника
+    function addRemoteVideo(id, stream) {
+      const existing = document.getElementById('remote-' + id);
+      if (existing) {
+        existing.srcObject = stream;
+        return;
+      }
+      const video = document.createElement('video');
+      video.id = 'remote-' + id;
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.muted = false;
+      video.style.width = '240px';
+      video.style.background = '#000';
+      video.style.borderRadius = '8px';
+      remoteVideos.appendChild(video);
+    }
+
+    function removeRemoteVideo(id) {
+      const el = document.getElementById('remote-' + id);
+      if (el) el.remove();
+    }
+
+    // Управление микрофоном
+    function toggleMic() {
+      if (!localStream) return;
+      const audioTrack = localStream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        document.getElementById('micBtn').textContent = audioTrack.enabled ? '🔊 Микрофон' : '🔇 Микрофон (выкл)';
+      }
+    }
+
+    // Управление камерой
+    function toggleVideo() {
+      if (!localStream) return;
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        document.getElementById('videoBtn').textContent = videoTrack.enabled ? '📷 Камера' : '📷 Камера (выкл)';
+      }
+    }
+
+    // Демонстрация экрана
+    async function toggleScreen() {
+      if (isScreenSharing) {
+        // Возвращаем камеру
+        if (screenStream) {
+          screenStream.getTracks().forEach(t => t.stop());
+          screenStream = null;
+        }
+        // Восстанавливаем исходный поток с камерой
+        try {
+          const newStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          replaceLocalStream(newStream);
+        } catch (err) {
+          alert('Не удалось вернуть камеру: ' + err.message);
+        }
+        isScreenSharing = false;
+        document.getElementById('screenBtn').textContent = '🖥️ Экран';
+        return;
+      }
+
+      // Начинаем демонстрацию экрана
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        screenStream = stream;
+        // Заменяем видео-трек в localStream на трек экрана
+        const videoTrack = stream.getVideoTracks()[0];
+        const localVideoTrack = localStream.getVideoTracks()[0];
+        if (localVideoTrack) {
+          localStream.removeTrack(localVideoTrack);
+          localStream.addTrack(videoTrack);
+        } else {
+          localStream.addTrack(videoTrack);
+        }
+        // Обновляем локальное видео
+        localVideo.srcObject = localStream;
+        // Обновляем все peer-соединения: отправляем новый трек
+        for (let id in peers) {
+          const peer = peers[id];
+          // simple-peer автоматически отправит новый поток? Нет, нужно заменить трек.
+          // Можно просто заменить поток в peer
+          peer.replaceTrack(localVideoTrack, videoTrack, localStream);
+        }
+        isScreenSharing = true;
+        document.getElementById('screenBtn').textContent = '🖥️ Экран (вкл)';
+        // При остановке демонстрации пользователем
+        videoTrack.onended = () => {
+          toggleScreen(); // автоматически вернуть камеру
+        };
+      } catch (err) {
+        alert('Не удалось начать демонстрацию экрана: ' + err.message);
+      }
+    }
+
+    // Замена всего локального потока (при возврате с экрана)
+    function replaceLocalStream(newStream) {
+      // Останавливаем старые треки
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+      }
+      localStream = newStream;
+      localVideo.srcObject = localStream;
+      // Обновляем все peer-соединения: отправляем новый поток
+      for (let id in peers) {
+        const peer = peers[id];
+        // simple-peer не позволяет заменить весь поток напрямую, но можно заменить треки
+        // Проще: создать новый peer? Но лучше использовать replaceTrack для каждого трека.
+        // В simple-peer 9.x есть replaceTrack(prevTrack, newTrack, stream)
+        // Мы переберём треки и заменим их.
+        const newVideoTrack = localStream.getVideoTracks()[0];
+        const newAudioTrack = localStream.getAudioTracks()[0];
+        // Получаем текущие треки в peer (не совсем тривиально). 
+        // Упростим: пересоздадим соединения? Это грубо.
+        // Вместо этого при демонстрации экрана мы не меняли аудио, только видео.
+        // Поэтому можно заменить только видео-трек.
+        // Но если мы переключаемся обратно с экрана на камеру, мы меняем видео-трек.
+        // В simple-peer можно заменить трек через replaceTrack.
+        // Однако peer может иметь несколько потоков.
+        // Проще: уничтожить все peer и пересоздать их заново.
+        // Так как у нас автоматическое подключение, можно просто переподключиться.
+        // Сделаем так: закрываем все соединения и инициируем новые.
+        for (let id in peers) {
+          peers[id].destroy();
+          delete peers[id];
+          removeRemoteVideo(id);
+        }
+        // Заново подключаемся ко всем пользователям
+        for (let id in currentUsers) {
+          if (id !== socket.id) {
+            createPeer(id, true);
+          }
+        }
+      }
+    }
+
+    // Выход из комнаты
+    function leaveRoom() {
+      for (let id in peers) {
+        peers[id].destroy();
+        delete peers[id];
+        removeRemoteVideo(id);
+      }
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+      }
+      if (screenStream) {
+        screenStream.getTracks().forEach(t => t.stop());
+        screenStream = null;
+      }
+      if (socket) socket.disconnect();
+      document.getElementById('login').style.display = 'block';
+      document.getElementById('roomInfo').style.display = 'none';
+      document.getElementById('localVideo').style.display = 'none';
+      remoteVideos.innerHTML = '';
+      statusDiv.textContent = 'Вы вышли.';
+    }
+
+    window.addEventListener('beforeunload', () => {
+      leaveRoom();
+    });
+  </script>
+</body>
+</html>
