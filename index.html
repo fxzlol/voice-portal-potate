@@ -2,41 +2,43 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat Roulette</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Chat Roulette 3</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: Arial, sans-serif;
-      background: #111;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0b0e14;
       color: #fff;
-      height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      min-height: 100vh;
+      padding: 10px;
     }
     #videos {
       display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 20px;
-      width: 100%;
-      max-width: 800px;
-      flex: 1;
+      flex-wrap: wrap;
       justify-content: center;
+      gap: 10px;
+      width: 100%;
+      max-width: 900px;
+      flex: 1;
+      align-items: center;
     }
     .video-container {
-      position: relative;
-      background: #222;
-      border-radius: 12px;
+      background: #1a1f2a;
+      border-radius: 16px;
       overflow: hidden;
-      width: 100%;
-      max-width: 640px;
+      position: relative;
+      flex: 1 1 200px;
+      min-width: 140px;
+      max-width: 320px;
       aspect-ratio: 4/3;
       display: flex;
       align-items: center;
       justify-content: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
     }
     .video-container video {
       width: 100%;
@@ -44,84 +46,95 @@
       object-fit: cover;
       background: #000;
     }
-    #localVideoContainer { max-width: 320px; aspect-ratio: 4/3; }
-    #remoteVideoContainer { max-width: 640px; aspect-ratio: 4/3; }
-    #controls {
-      display: flex;
-      gap: 15px;
-      margin: 20px 0;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-    button {
-      padding: 12px 24px;
-      border: none;
-      border-radius: 30px;
-      font-size: 16px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: 0.2s;
-      background: #3a6b8f;
-      color: #fff;
-      min-width: 120px;
-    }
-    button:hover { opacity: 0.8; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    #startBtn { background: #2e7d32; }
-    #stopBtn { background: #c62828; }
-    #skipBtn { background: #f57c00; }
-    #status {
-      margin: 10px;
-      padding: 8px 16px;
-      background: #222;
-      border-radius: 20px;
-      font-size: 14px;
-    }
-    footer {
-      margin-top: 20px;
-      padding: 10px;
-      font-size: 14px;
-      color: #888;
-    }
-    footer a { color: #4fc3f7; text-decoration: none; }
-    footer a:hover { text-decoration: underline; }
-    .placeholder-text { color: #666; font-size: 18px; }
     .label {
       position: absolute;
       bottom: 8px;
-      left: 12px;
-      background: rgba(0,0,0,0.6);
-      padding: 4px 10px;
-      border-radius: 12px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      padding: 4px 12px;
+      border-radius: 20px;
       font-size: 12px;
+      color: #aaf;
+      backdrop-filter: blur(4px);
     }
-    #localVideoContainer .label { color: #aaf; }
-    #remoteVideoContainer .label { color: #faa; }
-    #remotePlaceholder {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      height: 100%;
+    .label.remote { color: #faa; }
+    .placeholder {
       color: #666;
-      font-size: 20px;
+      font-size: 16px;
+      text-align: center;
+      padding: 10px;
     }
+    #status {
+      margin: 12px 0 8px;
+      padding: 6px 18px;
+      background: #1a1f2a;
+      border-radius: 30px;
+      font-size: 14px;
+      color: #aaa;
+    }
+    #controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin: 12px 0;
+    }
+    button {
+      padding: 10px 22px;
+      border: none;
+      border-radius: 40px;
+      font-weight: 600;
+      font-size: 15px;
+      cursor: pointer;
+      transition: 0.2s;
+      background: #2a3f5e;
+      color: #fff;
+      min-width: 90px;
+      touch-action: manipulation;
+    }
+    button:active { transform: scale(0.95); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    #startBtn { background: #2e7d32; }
+    #stopBtn { background: #b71c1c; }
+    #skipBtn { background: #e65100; }
+    footer {
+      margin-top: auto;
+      padding: 16px 0 8px;
+      font-size: 14px;
+      color: #666;
+    }
+    footer a {
+      color: #4fc3f7;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    footer a:hover { text-decoration: underline; }
     @media (max-width: 600px) {
-      #localVideoContainer { max-width: 200px; }
-      #controls button { min-width: 80px; padding: 10px 16px; font-size: 14px; }
+      .video-container { flex: 1 1 120px; min-width: 100px; max-width: 200px; }
+      button { padding: 8px 16px; font-size: 13px; min-width: 70px; }
+      #status { font-size: 12px; padding: 4px 14px; }
+    }
+    @media (max-width: 400px) {
+      .video-container { flex: 1 1 90px; min-width: 80px; }
+      .label { font-size: 10px; bottom: 4px; left: 6px; padding: 2px 8px; }
     }
   </style>
 </head>
 <body>
   <div id="videos">
-    <div id="localVideoContainer" class="video-container">
+    <div class="video-container" id="localContainer">
       <video id="localVideo" autoplay muted></video>
       <span class="label">Вы</span>
     </div>
-    <div id="remoteVideoContainer" class="video-container">
-      <video id="remoteVideo" autoplay></video>
-      <span class="label">Собеседник</span>
-      <div id="remotePlaceholder">Ожидание собеседника...</div>
+    <div class="video-container" id="remote1Container">
+      <video id="remote1" autoplay></video>
+      <span class="label remote">Собеседник 1</span>
+      <div class="placeholder">Ожидание...</div>
+    </div>
+    <div class="video-container" id="remote2Container">
+      <video id="remote2" autoplay></video>
+      <span class="label remote">Собеседник 2</span>
+      <div class="placeholder">Ожидание...</div>
     </div>
   </div>
 
@@ -141,16 +154,22 @@
   <script>
     // ----- DOM -----
     const localVideo = document.getElementById('localVideo');
-    const remoteVideo = document.getElementById('remoteVideo');
-    const remotePlaceholder = document.getElementById('remotePlaceholder');
+    const remoteVideos = {
+      1: { video: document.getElementById('remote1'), container: document.getElementById('remote1Container') },
+      2: { video: document.getElementById('remote2'), container: document.getElementById('remote2Container') }
+    };
+
     const statusDiv = document.getElementById('status');
     const startBtn = document.getElementById('startBtn');
     const skipBtn = document.getElementById('skipBtn');
     const stopBtn = document.getElementById('stopBtn');
 
-    let socket, localStream, peer = null;
-    let partnerId = null, roomId = null;
-    let isSearching = false, isConnected = false;
+    let socket, localStream;
+    let peers = {};          // { socketId: SimplePeer }
+    let groupId = null;
+    let members = [];        // массив socketId других участников
+    let isSearching = false;
+    let isConnected = false;
 
     // ----- Медиа -----
     async function getMedia() {
@@ -159,6 +178,7 @@
         localVideo.srcObject = localStream;
       } catch (err) {
         alert('Ошибка доступа к камере/микрофону: ' + err.message);
+        throw err;
       }
     }
 
@@ -174,7 +194,7 @@
       socket.on('search-status', (data) => {
         if (data.status === 'waiting') {
           isSearching = true;
-          updateStatus('Поиск собеседника...');
+          updateStatus('Поиск...');
         } else {
           isSearching = false;
           updateStatus('Поиск остановлен');
@@ -182,51 +202,87 @@
         updateButtons();
       });
 
-      socket.on('matched', ({ partnerId: partner, room }) => {
-        partnerId = partner;
-        roomId = room;
+      socket.on('matched', ({ groupId: gid, members: memberIds }) => {
+        groupId = gid;
+        members = memberIds; // список id других участников
         isSearching = false;
         isConnected = true;
-        updateStatus('Собеседник найден!');
-        remotePlaceholder.style.display = 'none';
-        createPeer(partnerId, roomId, true);
+        updateStatus('Собеседники найдены!');
+        // Скрыть плейсхолдеры
+        document.querySelectorAll('.placeholder').forEach(el => el.style.display = 'none');
+        // Для каждого участника создаём peer
+        memberIds.forEach(id => createPeer(id, true));
         updateButtons();
       });
 
-      socket.on('offer', ({ from, offer, room }) => {
-        if (!peer) createPeer(from, room, false);
-        peer.signal(offer);
+      socket.on('signal', ({ from, data }) => {
+        if (peers[from]) {
+          peers[from].signal(data);
+        } else {
+          // если вдруг peer ещё не создан, создаём как ответчика
+          createPeer(from, false);
+          peers[from].signal(data);
+        }
       });
 
-      socket.on('answer', ({ from, answer, room }) => {
-        if (peer) peer.signal(answer);
-      });
-
-      socket.on('ice-candidate', ({ from, candidate, room }) => {
-        if (peer) peer.signal(candidate);
-      });
-
-      socket.on('partner-disconnected', () => {
-        if (peer) { peer.destroy(); peer = null; }
-        isConnected = false;
-        partnerId = null;
-        roomId = null;
-        remoteVideo.srcObject = null;
-        remotePlaceholder.style.display = 'flex';
-        updateStatus('Собеседник ушёл. Ищем нового...');
-        startSearch();
+      socket.on('partner-disconnected', ({ reason, leftId }) => {
+        if (leftId && peers[leftId]) {
+          peers[leftId].destroy();
+          delete peers[leftId];
+          // очищаем видео
+          const idx = members.indexOf(leftId);
+          if (idx !== -1) {
+            // определяем, какой контейнер соответствует этому id (по индексу)
+            const remoteKey = idx + 1;
+            if (remoteVideos[remoteKey]) {
+              remoteVideos[remoteKey].video.srcObject = null;
+              remoteVideos[remoteKey].container.querySelector('.placeholder').style.display = 'flex';
+            }
+          }
+        }
+        // Если ушли все (или мы сами скипнули), то переходим в состояние ожидания
+        if (reason === 'you-left' || members.length === 0) {
+          isConnected = false;
+          // Очищаем все пиры
+          for (let id in peers) { peers[id].destroy(); delete peers[id]; }
+          members = [];
+          groupId = null;
+          updateStatus('Вы вышли. Ищем новую группу...');
+          // Если это не мы скипнули, а кто-то ушёл, то мы автоматически идём в поиск
+          if (reason !== 'you-left') {
+            startSearch();
+          } else {
+            isSearching = false;
+            updateStatus('Поиск остановлен');
+          }
+          updateButtons();
+        } else {
+          // Если один из участников ушёл, мы остаёмся с другим (но у нас логика: при уходе одного вся группа распадается)
+          // но сервер уже отправил всем событие, и они все пойдут в очередь заново
+          // однако мы можем просто сбросить состояние
+          isConnected = false;
+          for (let id in peers) { peers[id].destroy(); delete peers[id]; }
+          members = [];
+          groupId = null;
+          updateStatus('Кто-то ушёл. Ищем заново...');
+          startSearch();
+          updateButtons();
+        }
       });
 
       socket.on('disconnect', () => {
-        alert('Соединение с сервером потеряно. Обновите страницу.');
+        alert('Потеря связи с сервером. Обновите страницу.');
         stopAll();
       });
     }
 
     // ----- Peer -----
-    function createPeer(partner, room, initiator) {
-      if (peer) { peer.destroy(); peer = null; }
-      peer = new SimplePeer({
+    function createPeer(partnerId, initiator) {
+      if (peers[partnerId]) {
+        // если уже есть, не создаём заново
+        return;
+      }
+      const peer = new SimplePeer({
         initiator,
         trickle: true,
         stream: localStream,
@@ -234,39 +290,43 @@
       });
 
       peer.on('signal', (data) => {
-        const event = initiator ? 'offer' : 'answer';
-        socket.emit(event, { to: partner, [event]: data, room });
+        socket.emit('signal', { to: partnerId, data, groupId });
       });
 
       peer.on('stream', (stream) => {
-        remoteVideo.srcObject = stream;
-        remotePlaceholder.style.display = 'none';
+        // Назначаем поток на соответствующее видео
+        const idx = members.indexOf(partnerId);
+        if (idx !== -1) {
+          const remoteKey = idx + 1;
+          if (remoteVideos[remoteKey]) {
+            remoteVideos[remoteKey].video.srcObject = stream;
+            remoteVideos[remoteKey].container.querySelector('.placeholder').style.display = 'none';
+          }
+        } else {
+          // Если не найдено в members (может быть, это новый участник) - игнорируем
+        }
       });
 
       peer.on('close', () => {
-        peer = null;
-        remoteVideo.srcObject = null;
-        remotePlaceholder.style.display = 'flex';
-        isConnected = false;
-        partnerId = null;
-        roomId = null;
-        updateStatus('Соединение закрыто');
-        updateButtons();
+        delete peers[partnerId];
+        // очищаем видео
+        const idx = members.indexOf(partnerId);
+        if (idx !== -1) {
+          const remoteKey = idx + 1;
+          if (remoteVideos[remoteKey]) {
+            remoteVideos[remoteKey].video.srcObject = null;
+            remoteVideos[remoteKey].container.querySelector('.placeholder').style.display = 'flex';
+          }
+        }
       });
 
       peer.on('error', (err) => {
         console.error('Peer error:', err);
         peer.destroy();
-        peer = null;
-        remoteVideo.srcObject = null;
-        remotePlaceholder.style.display = 'flex';
-        isConnected = false;
-        partnerId = null;
-        roomId = null;
-        updateStatus('Ошибка');
-        updateButtons();
-        startSearch();
+        delete peers[partnerId];
       });
+
+      peers[partnerId] = peer;
     }
 
     // ----- Действия -----
@@ -279,27 +339,41 @@
     }
 
     function skip() {
-      if (!isConnected) return;
-      socket.emit('skip');
-      if (peer) { peer.destroy(); peer = null; }
-      remoteVideo.srcObject = null;
-      remotePlaceholder.style.display = 'flex';
-      isConnected = false;
-      partnerId = null;
-      roomId = null;
-      updateStatus('Скип, ищем нового...');
+      if (!isConnected && !isSearching) return;
+      if (isConnected) {
+        socket.emit('skip');
+        // локально очищаем всё
+        for (let id in peers) { peers[id].destroy(); delete peers[id]; }
+        members = [];
+        groupId = null;
+        isConnected = false;
+        // очищаем видео
+        for (let i = 1; i <= 2; i++) {
+          remoteVideos[i].video.srcObject = null;
+          remoteVideos[i].container.querySelector('.placeholder').style.display = 'flex';
+        }
+        updateStatus('Скип, ищем новую группу...');
+      } else if (isSearching) {
+        // Если в поиске, то скип означает остановку поиска и перезапуск? Просто остановим и начнём заново.
+        stopSearch();
+        startSearch();
+      }
       updateButtons();
     }
 
     function stopSearch() {
       if (socket) socket.emit('stop-search');
-      if (peer) { peer.destroy(); peer = null; }
-      remoteVideo.srcObject = null;
-      remotePlaceholder.style.display = 'flex';
+      if (isConnected) {
+        for (let id in peers) { peers[id].destroy(); delete peers[id]; }
+        members = [];
+        groupId = null;
+        isConnected = false;
+        for (let i = 1; i <= 2; i++) {
+          remoteVideos[i].video.srcObject = null;
+          remoteVideos[i].container.querySelector('.placeholder').style.display = 'flex';
+        }
+      }
       isSearching = false;
-      isConnected = false;
-      partnerId = null;
-      roomId = null;
       updateStatus('Поиск остановлен');
       updateButtons();
     }
@@ -321,7 +395,7 @@
 
     function updateButtons() {
       startBtn.disabled = isSearching || isConnected || !socket;
-      skipBtn.disabled = !isConnected;
+      skipBtn.disabled = !(isSearching || isConnected);
       stopBtn.disabled = !(isSearching || isConnected);
     }
 
