@@ -7,9 +7,15 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Обслуживаем статические файлы из корневой директории (там лежит index.html)
+app.use(express.static(__dirname));
 
-// Хранилище комнат: { roomName: { users: { socketId: { username, socketId } } } }
+// На любой GET-запрос, кроме статики, отдаём index.html
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Хранилище комнат
 const rooms = {};
 
 io.on('connection', (socket) => {
@@ -20,14 +26,11 @@ io.on('connection', (socket) => {
     if (!rooms[room]) rooms[room] = { users: {} };
     rooms[room].users[socket.id] = { username, socketId: socket.id };
 
-    // Отправить список всех пользователей в комнате
     io.to(room).emit('room-users', rooms[room].users);
-    // Подтверждение для нового пользователя
     socket.emit('room-joined', { room, users: rooms[room].users });
     console.log(`[${socket.id}] joined room ${room}`);
   });
 
-  // Сигнальные события WebRTC
   socket.on('offer', ({ to, offer, room }) => {
     io.to(to).emit('offer', { from: socket.id, offer, room });
   });
@@ -41,7 +44,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    // Найти комнату, где был пользователь, и удалить его
     for (const room in rooms) {
       if (rooms[room].users[socket.id]) {
         delete rooms[room].users[socket.id];
